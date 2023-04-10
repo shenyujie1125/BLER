@@ -1,18 +1,2 @@
 三流网络：
-mul without center loss
-python train_tsn.py -c config_tsn.json --modality "RGB" -b 32 --lr 1e-3 --arch resnet101 --workers 4 --num_segments 3 --exp_name "rgb_two_stream_center_loss" -d 0,1 --no_partialbn --num_factors 2
-python test_tsn.py --mode val --modality "RGB" --arch resnet101 --workers 4 --weights /home/a/Desktop/NTUA-BEEU-eccv2020-master/log/models/rgb_two_stream_center_loss/0405_052803/model_best.pth --embed
-val_segment=3  : ap: 0.15653171181136957 roc_auc:0.6125799566503988 mse:0.024288413245860535 r2:0.09668288001101277 ERS:0.24061935712094848
-val_segment=25 : ap: 0.1595546619134939 roc_auc:0.6139486209119044 mse:0.024234043305529435 r2:0.09849853212242547 ERS:0.2426250867675623
-
-cat with center loss
-python test_tsn.py --mode val --modality "RGB" --arch resnet101 --workers 4 --weights /home/a/Desktop/NTUA-BEEU-eccv2020-master/log/models/rgb_two_stream_center_loss/0405_230122/model_best.pth --embed
-val_segment=25 : ap: 0.16479821265551406 roc_auc:0.6165693196598754 mse:0.024175209108248667 r2:0.10060963715770303 ERS:0.2456467016576989
-val_segment=3  : ap: 0.16191008399577672 roc_auc:0.6156940846023353 mse:0.02442432791098816 r2:0.09149125262587517 ERS:0.2401466684624656
-
-cat without center loss
-python test_tsn.py --mode val --modality "RGB" --arch resnet101 --workers 4 --weights /home/a/Desktop/NTUA-BEEU-eccv2020-master/log/models/rgb_two_stream_center_loss/0406_102832/model_best.pth --embed
-val_segment=3  : ap: 0.16440917720333356 roc_auc:0.6236387023153481 mse:0.02423248487429761 r2:0.09842201737807184 ERS:0.24622297856870634
-val_segment=25 : ap: 0.16706711180988504 roc_auc:0.6245340817752385 mse:0.024054308227187862 r2:0.10492187220066358 ERS:0.2503612344966127
-val_segment=3  : Result upload successful. Your result is: AP = 0.1655, AUC = 0.6293, R^2 = 0.1121 ((0.1655+0.6293)/2+0.1121)/2 = 0.25475
 
