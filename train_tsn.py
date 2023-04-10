@@ -23,11 +23,15 @@ np.random.seed(SEED)
 def main(args, config):
     if args.modality == 'RGB':
         data_length = 1
-    elif args.modality == 'Flow':
-        data_length = 5
+    else:
+        data_length = None
+    if args.modality_1 == 'Flow':
+        data_length_1 = 5
+    else:
+        data_length_1 = None
 
-    model = TSN(26, args.num_segments, args.modality,
-                base_model=args.arch, new_length=data_length, embed=args.embed,
+    model = TSN(26, args.num_segments, args.modality, args.modality_1,
+                base_model=args.arch, new_length=data_length, new_length_1=data_length_1, embed=args.embed,
                 consensus_type=args.consensus_type, dropout=args.dropout, partial_bn=not args.no_partialbn,
                 context=args.context, args=args)
 
@@ -124,7 +128,8 @@ if __name__ == '__main__':
                         help='path to latest checkpoint (default: None)')
     parser.add_argument('-d', '--device', default=None, type=str,
                         help='indices of GPUs to enable (default: all)')
-    parser.add_argument('--modality', type=str, choices=['RGB', 'Flow', 'RGBDiff', 'depth'])
+    parser.add_argument('--modality', type=str, default='RGB', choices=['RGB', 'Flow', 'RGBDiff', 'depth'])
+    parser.add_argument('--modality_1', type=str, default='Flow', choices=['RGB', 'Flow', 'RGBDiff', 'depth'])
 
     # ========================= Model Configs ==========================
     parser.add_argument('--arch', type=str, default="resnet101")
@@ -154,6 +159,8 @@ if __name__ == '__main__':
     parser.add_argument('--flow_prefix', default="", type=str)
     parser.add_argument('--opn', type=str, default='mul')
     parser.add_argument('--embed_dim', default=300, type=int)
+    parser.add_argument('--st_gcn_dim', default=256, type=int)
+    parser.add_argument('--center_dim', default=512, type=int)
 
     # custom cli options to modify configuration from default values given in json file.
     CustomArgs = collections.namedtuple('CustomArgs', 'flags type target')

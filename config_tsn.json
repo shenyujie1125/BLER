@@ -1,8 +1,8 @@
 {
     "name": "pycharm debug",
-    "n_gpu": 4,
+    "n_gpu": 2,
 
-    "loss": "combined_loss",
+    "loss": "bce_loss",
 
     "loss_continuous": "mse_loss",
     "metrics": [
@@ -16,19 +16,19 @@
     "lr_scheduler": {
         "type": "MultiStepLR",
         "args": {
-            "milestones": [20],
+            "milestones": [100, 150],
             "gamma": 0.1
         }
     },
 
     "trainer": {
-        "epochs": 50,
+        "epochs": 200,
 
         "save_dir": "log",
         "save_period": 1,
         "verbosity": 2,
         
-        "monitor": "min val_loss",
+        "monitor": "max val_mre",
         "early_stop": 100,
 
         "tensorboard": true

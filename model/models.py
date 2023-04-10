@@ -1,14 +1,8 @@
-import os
-
-from torch import nn
 import torch.nn.functional
-import torch
-from .ops.basic_ops import ConsensusModule, Identity
-from torch.nn.init import normal, constant
-from torch.nn import Parameter
 import torchvision
-import numpy as np
+from torch.nn.init import normal, constant
 from model.stgcn import *
+from .ops.basic_ops import ConsensusModule
 
 
 class CLUBSample(nn.Module):  # Sampled version of the CLUB estimator
@@ -48,6 +42,23 @@ class CLUBSample(nn.Module):  # Sampled version of the CLUB estimator
         return - self.loglikeli(x_samples, y_samples)
 
 
+def loss_dependence_hisc(zdata_trn, ncaps, nhidden):
+    loss_dep = torch.zeros(1).cuda()
+    hH = (-1 / nhidden) * torch.ones(nhidden, nhidden).cuda() + torch.eye(nhidden).cuda()
+    kfactor = torch.zeros(ncaps, nhidden, nhidden).cuda()
+    for mm in range(ncaps):
+        data_temp = zdata_trn[:, mm * nhidden:(mm + 1) * nhidden]
+        kfactor[mm, :, :] = torch.mm(data_temp.t(), data_temp)
+    for mm in range(ncaps):
+        for mn in range(mm + 1, ncaps):
+            mat1 = torch.mm(hH, kfactor[mm, :, :])
+            mat2 = torch.mm(hH, kfactor[mn, :, :])
+            mat3 = torch.mm(mat1, mat2)
+            teststat = torch.trace(mat3)
+            loss_dep = loss_dep + teststat
+    return loss_dep
+
+
 class Basic_block(nn.Module):
     def __init__(self, in_feature, hidden, out_feature):
         super().__init__()
@@ -66,24 +77,35 @@ class Basic_block(nn.Module):
 
 
 class TSN(nn.Module):
-    def __init__(self, num_class, num_segments, modality,
-                 base_model='resnet18', new_length=None,
-                 consensus_type='avg', before_softmax=True,
-                 dropout=0.8,
-                 crop_num=1, partial_bn=True, context=False, embed=False, args=None):
+    def __init__(self, num_class, num_segments, modality, modality_1,
+                 base_model='resnet18', new_length=None, new_length_1=None,
+                 embed=False, consensus_type='avg', before_softmax=True,
+                 dropout=0.8, crop_num=1, partial_bn=True, context=False,  args=None):
         super(TSN, self).__init__()
+        # 第一种模态
         self.modality = modality
-        self.modality_1 = 'Flow'
+        # 第二种模态
+        self.modality_1 = modality_1
+        # 视频分段的数量
         self.num_segments = num_segments
-        self.reshape = True
         self.before_softmax = before_softmax
         self.dropout = dropout
         self.crop_num = crop_num
+        self.args = args
         self.consensus_type = consensus_type
+        self.embed_dim = self.args.embed_dim
         self.embed = embed
         self.embed_1 = False
-        self.args = args
+        if modality == "RGB":
+            self.new_length = 1
+        else:
+            self.new_length = new_length
+        if self.modality_1 == 'Flow':
+            self.new_length_1 = 5
+        else:
+            self.new_length_1 = new_length_1
 
+        """st_gcn 模块 输入通道，输出情感分类以及回归 openpose18个肢体动作的点构成 """
         self.in_channels = 3
         self.num_classes = 26
         self.num_dimensions = 3
@@ -100,111 +122,135 @@ class TSN(nn.Module):
         pretrained_dict = {k: v for k, v in pretrained_dict.items() if k in model_dict}
         model_dict.update(pretrained_dict)
         self.model.load_state_dict(model_dict)
+        """ 这一部分构建时空图卷积的网络，并且网络的参数用预备训练的网络进行初始化"""
 
+        """构建第一个模态的模型，采用resnet构建模型"""
         self.name_base = base_model
-        if not before_softmax and consensus_type != 'avg':
-            raise ValueError("Only avg consensus can be used after Softmax")
-
-        if new_length is None:
-            self.new_length = 1 if modality == "RGB" else 5
-        else:
-            self.new_length = new_length
-
-        if self.modality_1 == 'Flow':
-            self.new_length_1 = 5
-
-        print(("""
-        Initializing TSN with base model: {}.
-        TSN Configurations:
-            input_modality:     {}
-            num_segments:       {}
-            new_length:         {}
-            consensus_module:   {}
-            dropout_ratio:      {}
-        """.format(base_model, self.modality, self.num_segments, self.new_length, consensus_type, self.dropout)))
-
-        self._prepare_base_model(base_model)
-
         self.context = context
+        if self.modality == 'RGB':
+            print(("""
+            Initializing TSN with base model: {}.
+            TSN Configurations:
+                input_modality:     {}
+                num_segments:       {}
+                new_length:         {}
+                consensus_module:   {}
+                dropout_ratio:      {}
+            """.format(base_model, self.modality, self.num_segments, self.new_length, consensus_type, self.dropout)))
+            self._prepare_base_model(base_model)
+            if context:
+                self._prepare_context_model()
+            self.feature_dim = self._prepare_tsn(num_class)
+        """可以选择是否采用context"""
+
+        """构建第二个模态的模型，采用resnet构建模型"""
         self.context_1 = False
-        if context:
-            self._prepare_context_model()
-
-        self.feature_dim = self._prepare_tsn(num_class)
-
-        self.embed_dim = self.args.embed_dim
-
         if self.modality_1 == 'Flow':
-            # print("Converting the ImageNet model to a flow init model")
+            print(("""
+            Initializing TSN with base model: {}.
+            TSN Configurations:
+                input_modality:     {}
+                num_segments:       {}
+                new_length:         {}
+                consensus_module:   {}
+                dropout_ratio:      {}
+            """.format(base_model, self.modality_1, self.num_segments, self.new_length_1, consensus_type, self.dropout)))
             self._prepare_base_model_1(base_model)
-            self.feature_dim = self._prepare_tsn_1(num_class)
+            self.feature_dim_1 = self._prepare_tsn_1(num_class)
             self.base_model_1 = self._construct_flow_model(self.base_model_1)
-            # print("Done. Flow model ready...")
-
+            print("Converting the ImageNet model to a flow init model")
+            print("Done. Flow model ready...")
             if self.context_1:
-                # print("Converting the context model to a flow init model")
                 self._prepare_context_model_1()
                 self.context_model_1 = self._construct_flow_model(self.context_model_1)
-                # print("Done. Flow model ready...")
+                print("Converting the context model to a flow init model")
+                print("Done. Flow model ready...")
+        """可以选择是否采用context"""
 
+        """是否采用batchnorm"""
         self._enable_pbn = partial_bn
         if partial_bn:
             self.partialBN(True)
+        """是否采用batchnorm"""
 
-        self.leakyrelu = nn.LeakyReLU(0.3)
-
+        """最终结果取平均模型"""
         self.consensus = ConsensusModule(consensus_type)
         self.consensus_cont = ConsensusModule(consensus_type)
+        """最终结果取平均模型"""
 
+        """对embed representation 取平均"""
         if self.embed:
             self.consensus_embed = ConsensusModule(consensus_type)
+        """对embed representation 取平均"""
 
-        self.linear_class = nn.Sequential(nn.Linear(int(4096+256), 1024), nn.Linear(1024, 26))
-        self.linear_continue = nn.Sequential(nn.Linear(int(4096+256), 1024), nn.Linear(1024, 3))
+        """这里需要设置最终的st_gcn_dim，以及对应映射维度"""
+        self.st_gcn_dim = args.st_gcn_dim
+        if args.opn == 'cat':
+            if self.st_gcn_dim == 256:
+                self.input_dim = self.feature_dim + self.feature_dim_1 + self.st_gcn_dim
+            else:
+                self.st_gcn_linear = nn.Linear(256, self.st_gcn_dim)
+                self.input_dim = self.feature_dim + self.feature_dim_1 + self.st_gcn_dim
+        """如果不是256那么就需要对其进行映射"""
 
+        """这里需要设置最终的st_gcn_dim，以及对应映射维度"""
+        if args.opn == 'mul':
+            if self.st_gcn_dim == 256:
+                self.input_dim = self.feature_dim + self.st_gcn_dim
+            else:
+                self.st_gcn_linear = nn.Linear(256, self.st_gcn_dim)
+                self.input_dim = self.feature_dim + self.st_gcn_dim
+        """如果不是256那么就需要对其进行映射"""
+
+        """预测全连接网络"""
+        self.linear_class = nn.Sequential(nn.Linear(self.input_dim, 1024), nn.Linear(1024, 26))
+        self.linear_continue = nn.Sequential(nn.Linear(self.input_dim, 1024), nn.Linear(1024, 3))
+        """预测全连接网络"""
+
+        """用于计算聚类损失的网络"""
+        self.center_dim = self.args.center_dim
         self.consensus_for_loss = ConsensusModule(consensus_type)
-        self.project = nn.Linear(int(4096+256), 4096)
+        self.project = nn.Sequential(nn.Linear(self.input_dim, 1024), nn.Linear(1024, self.center_dim))
+        """用于计算聚类损失的网络"""
 
-    def forward(self, input, input_1, input2, embeddings, epoch):
-        out_stgcn = self.model(input2)
-        sample_len = (3 if self.modality == "RGB" else 2) * self.new_length
+    def forward(self, input, input_1, input2):
+        """resnet的通道数量对于不同模态是不一样的"""
+        if self.modality == "RGB":
+            sample_len = 3
         if self.modality_1 == 'Flow':
             sample_len_1 = 10
 
+        """RGB模态前向传播"""
         if self.context:
             inp = input.view((-1, sample_len) + input.size()[-2:])
-
             body_indices = list(range(0, inp.size(0), 2))
             context_indices = list(range(1, inp.size(0), 2))
-
             body = inp[body_indices]
             context = inp[context_indices]
         else:
             body = input.view((-1, sample_len) + input.size()[-2:])
-
         base_out = self.base_model(body).squeeze(-1).squeeze(-1)
-
         if self.context:
             context_out = self.context_model(context).squeeze(-1).squeeze(-1)
+        """RGB模态前向传播"""
 
+        """Flow模态前向传播"""
         if self.context_1:
             inp_1 = input_1.view((-1, sample_len_1) + input_1.size()[-2:])
-
             body_indices_1 = list(range(0, inp_1.size(0), 2))
             context_indices_1 = list(range(1, inp_1.size(0), 2))
-
             body_1 = inp[body_indices_1]
             context_1 = inp[context_indices_1]
         else:
             body_1 = input_1.view((-1, sample_len_1) + input_1.size()[-2:])
-
         base_out_1 = self.base_model_1(body_1).squeeze(-1).squeeze(-1)
         if self.context_1:
             context_out_1 = self.context_model_1(context_1).squeeze(-1).squeeze(-1)
+        """Flow模态前向传播"""
 
-        ##################################################################################################################################
         outputs = {}
-        ##################################################################################################################################
+
+        """对embed进行处理，如果有的话"""
         if self.embed:
             embed_segm = self.embed_fc(base_out)
             embed = embed_segm.view((-1, self.num_segments) + embed_segm.size()[1:])
@@ -215,38 +261,49 @@ class TSN(nn.Module):
             embed_1 = embed_segm_1.view((-1, self.num_segments) + embed_segm_1.size()[1:])
             embed_1 = self.consensus_embed(embed_1).squeeze(1)
             outputs['embed_1'] = embed_1
+        """对embed进行处理，如果有的话"""
 
+        """融合，一般不需要"""
         if self.context:
             base_out = torch.mul(base_out, context_out)
-
         if self.context_1:
             base_out_1 = torch.mul(base_out_1, context_out_1)
+        """融合，一般不需要"""
 
-        resnet_output = torch.cat([base_out_1, base_out], dim=1)
+        """对双流网络进行融合"""
+        if self.args.opn == 'cat':
+            resnet_output = torch.cat([base_out_1, base_out], dim=1)
+        else:
+            resnet_output = torch.mul(base_out_1, base_out)
+        """对双流网络进行融合"""
+
+        """stgcn前向传播"""
+        out_stgcn = self.model(input2)
+        if self.st_gcn_dim != 256:
+            out_stgcn = self.st_gcn_linear(out_stgcn)
         if self.num_segments != 1:
             out_stgcn_1 = out_stgcn.unsqueeze(1).repeat(1, self.num_segments, 1)
             out_stgcn_2 = out_stgcn_1.view(-1, out_stgcn_1.shape[-1])
         else:
             out_stgcn_2 = out_stgcn
         resnet_output = torch.cat([resnet_output, out_stgcn_2], dim=1)
-        # resnet_output = torch.mul(base_out_1, base_out)
+        """stgcn前向传播"""
 
+        """进行前向预测，然后对一个视频的多个片段上的结果取平均"""
         results_class = self.linear_class(resnet_output)
         results_continue = self.linear_continue(resnet_output)
-
         base_out_cat = results_class.view((-1, self.num_segments) + results_class.size()[1:])
         base_out_cont = results_continue.view((-1, self.num_segments) + results_continue.size()[1:])
-
         output = self.consensus(base_out_cat)
         outputs['categorical'] = output.squeeze(1)
-
         output_cont = self.consensus_cont(base_out_cont)
         outputs['continuous'] = output_cont.squeeze(1)
+        """进行前向预测，然后对一个视频的多个片段上的结果取平均"""
 
+        """得到特征用于聚类"""
         resnet_output = self.project(resnet_output)
-        feature = self.consensus_for_loss(
-            resnet_output.view((-1, self.num_segments) + resnet_output.size()[1:])).squeeze(1)
-
+        feature = self.consensus_for_loss(resnet_output.view((-1, self.num_segments) + resnet_output.size()[1:])).squeeze(1)
+        """得到特征用于聚类"""
         return outputs, feature
 
     def loss_dependence_club_b(self, model, representation, num_factors):
@@ -282,10 +339,7 @@ class TSN(nn.Module):
             else:
                 setattr(self.base_model, self.base_model.last_layer_name, nn.Dropout(p=self.dropout))
 
-        if self.context and self.args.opn == 'cat':
-            num_feats = 4096
-        else:
-            num_feats = 2048
+        num_feats = 2048
 
         if self.embed:
             self.embed_fc = nn.Sequential(nn.Linear(num_feats, 512),
@@ -310,10 +364,7 @@ class TSN(nn.Module):
             else:
                 setattr(self.base_model_1, self.base_model_1.last_layer_name, nn.Dropout(p=self.dropout))
 
-        if self.context_1 and self.args.opn == 'cat':
-            num_feats = 4096
-        else:
-            num_feats = 2048
+        num_feats = 2048
 
         if self.embed_1:
             self.embed_fc_1 = nn.Sequential(nn.Linear(num_feats, 512),
@@ -336,7 +387,7 @@ class TSN(nn.Module):
         self.context_model_1 = nn.Sequential(*modules)
 
     def _prepare_base_model(self, base_model):
-        import torchvision, torchvision.models
+        import torchvision.models
 
         if 'resnet' in base_model or 'vgg' in base_model or 'resnext' in base_model or 'densenet' in base_model:
             self.base_model = getattr(torchvision.models, base_model)(True)
@@ -353,7 +404,7 @@ class TSN(nn.Module):
             raise ValueError('Unknown base model: {}'.format(base_model))
 
     def _prepare_base_model_1(self, base_model):
-        import torchvision, torchvision.models
+        import torchvision.models
 
         if 'resnet' in base_model or 'vgg' in base_model or 'resnext' in base_model or 'densenet' in base_model:
             self.base_model_1 = getattr(torchvision.models, base_model)(True)
@@ -378,19 +429,43 @@ class TSN(nn.Module):
         count = 0
         if self._enable_pbn:
             print("Freezing BatchNorm2D except the first one.")
+            count = 0
             for m in self.base_model.modules():
                 if isinstance(m, nn.BatchNorm2d):
                     count += 1
                     if count >= (2 if self._enable_pbn else 1):
                         m.eval()
-
                         # shutdown update in frozen mode
                         m.weight.requires_grad = False
                         m.bias.requires_grad = False
+
+            print("Freezing BatchNorm2D except the first one.")
             count = 0
+            for m in self.base_model_1.modules():
+                if isinstance(m, nn.BatchNorm2d):
+                    count += 1
+                    if count >= (2 if self._enable_pbn else 1):
+                        m.eval()
+                        # shutdown update in frozen mode
+                        m.weight.requires_grad = False
+                        m.bias.requires_grad = False
+
             if self.context:
+                count = 0
                 print("Freezing BatchNorm2D except the first one.")
                 for m in self.context_model.modules():
+                    if isinstance(m, nn.BatchNorm2d):
+                        count += 1
+                        if count >= (2 if self._enable_pbn else 1):
+                            m.eval()
+                            # shutdown update in frozen mode
+                            m.weight.requires_grad = False
+                            m.bias.requires_grad = False
+
+            if self.context_1:
+                count = 0
+                print("Freezing BatchNorm2D except the first one.")
+                for m in self.context_model_1.modules():
                     if isinstance(m, nn.BatchNorm2d):
                         count += 1
                         if count >= (2 if self._enable_pbn else 1):
@@ -425,8 +500,10 @@ class TSN(nn.Module):
                              bias=True if len(params) == 2 else False)
         new_conv.weight.data = new_kernels
         if len(params) == 2:
-            new_conv.bias.data = params[1].data  # add bias if neccessary
-        layer_name = list(container.state_dict().keys())[0][:-7]  # remove .weight suffix to get the layer name
+            new_conv.bias.data = params[1].data
+            # add bias if neccessary
+        layer_name = list(container.state_dict().keys())[0][:-7]
+        # remove .weight suffix to get the layer name
 
         # replace the first convlution layer
         setattr(container, layer_name, new_conv)

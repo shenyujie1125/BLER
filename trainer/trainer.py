@@ -17,8 +17,9 @@ class Trainer(BaseTrainer):
     """
 	Trainer class
 	"""
-    def __init__(self, model, criterion, criterion_continuous, metric_ftns, metric_ftns_continuous, optimizer_main, config,
-                 data_loader, categorical=True, continuous=True,
+
+    def __init__(self, model, criterion, criterion_continuous, metric_ftns, metric_ftns_continuous, optimizer_main,
+                 config, data_loader, categorical=True, continuous=True,
                  valid_data_loader=None, lr_scheduler=None, len_epoch=None, embed=False):
         super().__init__(model, criterion, metric_ftns, optimizer_main, config)
         self.data_loader = data_loader
@@ -37,15 +38,12 @@ class Trainer(BaseTrainer):
         self.do_validation = self.valid_data_loader is not None
         self.lr_scheduler = lr_scheduler
         self.log_step = int(np.sqrt(data_loader.batch_size))
-
         self.metric_ftns_continuous = metric_ftns_continuous
-
         self.criterion_continuous = criterion_continuous
         self.criterion_categorical = criterion
 
         self.categorical_class_metrics = [_class + "_" + m.__name__ for _class in
                                           valid_data_loader.dataset.categorical_emotions for m in self.metric_ftns]
-
         self.continuous_class_metrics = [_class + "_" + m.__name__ for _class in
                                          valid_data_loader.dataset.continuous_emotions for m in
                                          self.metric_ftns_continuous]
@@ -56,12 +54,12 @@ class Trainer(BaseTrainer):
                                            'map', 'mse', 'r2', 'roc_auc', writer=self.writer)
 
         self.embed = embed
-        # 初始化每一个类别的特征中心向量
-        # 初始化一个函数矩阵，里面包含所有的特征向量
-        # 初始化每一个类别的样本数量
-        self.all_feature = torch.zeros(len(self.data_loader.dataset), 4096, requires_grad=False)
-        self.centers = torch.zeros(26, 4096, requires_grad=False)
-        self.centers_tmp = torch.zeros(26, 4096, requires_grad=False)
+        """初始化每一个类别的特征中心向量
+           初始化一个函数矩阵，里面包含所有的特征向量
+           初始化每一个类别的样本数量"""
+        self.all_feature = torch.zeros(len(self.data_loader.dataset), self.model.module.center_dim, requires_grad=False)
+        self.centers = torch.zeros(26, self.model.module.center_dim, requires_grad=False)
+        self.centers_tmp = torch.zeros(26, self.model.module.center_dim, requires_grad=False)
         self.counts = torch.zeros(26, requires_grad=False)
         self.all_label = torch.zeros(len(self.data_loader.dataset), 26, requires_grad=False)
         self.centers_start_epoch = 5
@@ -69,11 +67,9 @@ class Trainer(BaseTrainer):
     def _train_epoch(self, epoch, phase="train"):
         """
 		Training logic for an epoch
-
 		:param epoch: Integer, current training epoch.
 		:return: A log that contains average loss and metric in this epoch.
 		"""
-        import torch.nn.functional as F
         import model.loss
         print("Finding LR")
         for param_group in self.optimizer.param_groups:
@@ -95,7 +91,7 @@ class Trainer(BaseTrainer):
         targets = []
         targets_continuous = []
         if epoch > self.centers_start_epoch and phase == 'train':
-            self.centers_tmp = torch.zeros(26, 4096, requires_grad=False)
+            self.centers_tmp = torch.zeros(26, self.model.module.center_dim, requires_grad=False)
             self.counts = torch.zeros(26, requires_grad=False)
             for emotion_class in range(26):
                 for num in range(len(self.data_loader.dataset)):
@@ -103,11 +99,11 @@ class Trainer(BaseTrainer):
                         self.centers_tmp[emotion_class] += self.all_feature[num]
                         self.counts[emotion_class] += 1
             for emotion_class in range(26):
-                self.centers_tmp[emotion_class] = self.centers_tmp[emotion_class]/(self.counts[emotion_class]+1e-10)
+                self.centers_tmp[emotion_class] = self.centers_tmp[emotion_class] / (self.counts[emotion_class] + 1e-10)
             if epoch == self.centers_start_epoch + 1:
                 self.centers = self.centers_tmp
             else:
-                self.centers = 0.9*self.centers + 0.1*self.centers_tmp
+                self.centers = 0.9 * self.centers + 0.1 * self.centers_tmp
             has_nan = torch.isnan(self.all_feature).any().item()
             if has_nan:
                 print(has_nan, 1)
@@ -118,7 +114,6 @@ class Trainer(BaseTrainer):
             if has_nan:
                 print(has_nan, 3)
         data_loader = self.data_loader if phase == "train" else self.valid_data_loader
-
         for batch_idx, (stgcn_data, data, data_1, embeddings, target, target_continuous, lengths, index) in enumerate(data_loader):
             data, target, target_continuous = data.to(self.device), target.to(self.device), target_continuous.to(self.device)
             embeddings = embeddings.to(self.device)
@@ -131,11 +126,11 @@ class Trainer(BaseTrainer):
             t[t >= 0.5] = 1  # threshold to get binary labels
             t[t < 0.5] = 0
             if epoch >= self.centers_start_epoch and phase == "train":
-                out, resnet_output = self.model(data, data_1, stgcn_data, embeddings, epoch)
+                out, resnet_output = self.model(data, data_1, stgcn_data)
                 self.all_feature[index] = resnet_output.data.cpu()
                 self.all_label[index] = t
             else:
-                out, resnet_output = self.model(data, data_1, stgcn_data, embeddings, epoch)
+                out, resnet_output = self.model(data, data_1, stgcn_data)
             has_nan = torch.isnan(resnet_output).any().item()
             if has_nan:
                 print(has_nan, 4)
@@ -148,21 +143,21 @@ class Trainer(BaseTrainer):
                 loss_embed = model.loss.mse_center_loss(out['embed'], embeddings, target)
                 loss += loss_embed
             loss_center = 0
-            if epoch > self.centers_start_epoch:
-                positive_centers = []
-                for i in range(resnet_output.size(0)):
-                    all = self.centers[t[i, :] == 1]
-                    if all.size(0) == 0:
-                        positive_center = torch.zeros(4096)
-                    else:
-                        positive_center = torch.mean(all, dim=0)
-                    has_nan = torch.isnan(positive_center).any().item()
-                    if has_nan:
-                        print(has_nan, 6)
-                    positive_centers.append(positive_center)
-                positive_centers = torch.stack(positive_centers, dim=0)
-                loss_center += F.mse_loss(resnet_output, positive_centers.to(resnet_output.device))
-            loss = loss + loss_center
+            # if epoch > self.centers_start_epoch:
+            #     positive_centers = []
+            #     for i in range(resnet_output.size(0)):
+            #         all = self.centers[t[i, :] == 1]
+            #         if all.size(0) == 0:
+            #             positive_center = torch.zeros(self.model.module.center_dim)
+            #         else:
+            #             positive_center = torch.mean(all, dim=0)
+            #         has_nan = torch.isnan(positive_center).any().item()
+            #         if has_nan:
+            #             print(has_nan, 6)
+            #         positive_centers.append(positive_center)
+            #     positive_centers = torch.stack(positive_centers, dim=0)
+            #     loss_center += F.mse_loss(resnet_output, positive_centers.to(resnet_output.device))
+            # loss = loss + loss_center
 
             if phase == "train":
                 loss.backward()
@@ -199,7 +194,6 @@ class Trainer(BaseTrainer):
             self.writer.set_step(epoch, "valid")
 
         metrics.update('loss', loss.item())
-
         metrics.update('loss_categorical', loss_categorical.item())
         if self.embed:
             metrics.update('loss_embed', loss_embed.item())
