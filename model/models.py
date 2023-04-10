@@ -306,6 +306,7 @@ class TSN(nn.Module):
         """得到特征用于聚类"""
         return outputs, feature
 
+    """club方法需要传入相应的模型，然后传入需要进行计算互信息的表示，以及需要解耦的num_factor"""
     def loss_dependence_club_b(self, model, representation, num_factors):
         mi_loss = 0.
         cnt = 0
@@ -315,7 +316,9 @@ class TSN(nn.Module):
                                       representation[:, j * self.dim_2: (j + 1) * self.dim_2])
                 cnt += 1
         return mi_loss
+    """club方法需要传入相应的模型，然后传入需要进行计算互信息的表示，以及需要解耦的num_factor"""
 
+    """club方法需要传入相应的模型，然后传入需要进行计算互信息的表示，以及需要解耦的num_factor"""
     def lld_bst(self, model, representation, num_factors):
         cnt = 0
         lld_loss = 0
@@ -325,7 +328,9 @@ class TSN(nn.Module):
                                                      representation[:, j * self.dim_2: (j + 1) * self.dim_2])
                 cnt += 1
         return lld_loss
+    """club方法需要传入相应的模型，然后传入需要进行计算互信息的表示，以及需要解耦的num_factor"""
 
+    """初始化RGB模态的模型"""
     def _prepare_tsn(self, num_class):
         std = 0.001
 
@@ -350,7 +355,9 @@ class TSN(nn.Module):
                     constant(m.bias, 0)
 
         return num_feats
+    """初始化RGB模态的模型"""
 
+    """初始化flow模态的模型"""
     def _prepare_tsn_1(self, num_class):
         std = 0.001
 
@@ -375,7 +382,9 @@ class TSN(nn.Module):
                     constant(m.bias, 0)
 
         return num_feats
+    """初始化flow模态的模型"""
 
+    """是否需要context模态的模型"""
     def _prepare_context_model(self):
         self.context_model = getattr(torchvision.models, "resnet50")(True)
         modules = list(self.context_model.children())[:-1]  # delete the last fc layer.
@@ -385,7 +394,9 @@ class TSN(nn.Module):
         self.context_model_1 = getattr(torchvision.models, "resnet50")(True)
         modules = list(self.context_model_1.children())[:-1]  # delete the last fc layer.
         self.context_model_1 = nn.Sequential(*modules)
+    """是否需要context模态的模型"""
 
+    """对RGB模态的模型进行修改"""
     def _prepare_base_model(self, base_model):
         import torchvision.models
 
@@ -402,7 +413,9 @@ class TSN(nn.Module):
 
         else:
             raise ValueError('Unknown base model: {}'.format(base_model))
+    """对RGB模态的模型进行修改"""
 
+    """对flow模态的模型进行修改"""
     def _prepare_base_model_1(self, base_model):
         import torchvision.models
 
@@ -412,14 +425,15 @@ class TSN(nn.Module):
             self.input_size_1 = 224
             self.input_mean_1 = [0.485, 0.456, 0.406]
             self.input_std_1 = [0.229, 0.224, 0.225]
-
             if self.modality_1 == 'Flow':
                 self.input_mean_1 = [0.5]
                 self.input_std_1 = [np.mean(self.input_std)]
 
         else:
             raise ValueError('Unknown base model: {}'.format(base_model))
+    """对flow模态的模型进行修改"""
 
+    """对模型的层的BN进行规定"""
     def train(self, mode=True):
         """
         Override the default train() to freeze the BN parameters
@@ -473,6 +487,7 @@ class TSN(nn.Module):
                             # shutdown update in frozen mode
                             m.weight.requires_grad = False
                             m.bias.requires_grad = False
+    """对模型的层的BN进行规定"""
 
     def partialBN(self, enable):
         self._enable_pbn = enable
@@ -480,6 +495,7 @@ class TSN(nn.Module):
     def get_optim_policies(self):
         return self.parameters()
 
+    """对flow模型的第一层进行修改"""
     def _construct_flow_model(self, base_model):
         # modify the convolution layers
         # Torch models are usually defined in a hierarchical way.
@@ -488,13 +504,11 @@ class TSN(nn.Module):
         first_conv_idx = list(filter(lambda x: isinstance(modules[x], nn.Conv2d), list(range(len(modules)))))[0]
         conv_layer = modules[first_conv_idx]
         container = modules[first_conv_idx - 1]
-
         # modify parameters, assume the first blob contains the convolution kernels
         params = [x.clone() for x in conv_layer.parameters()]
         kernel_size = params[0].size()
         new_kernel_size = kernel_size[:1] + (2 * self.new_length_1,) + kernel_size[2:]
         new_kernels = params[0].data.mean(dim=1, keepdim=True).expand(new_kernel_size).contiguous()
-
         new_conv = nn.Conv2d(2 * self.new_length_1, conv_layer.out_channels,
                              conv_layer.kernel_size, conv_layer.stride, conv_layer.padding,
                              bias=True if len(params) == 2 else False)
@@ -504,7 +518,7 @@ class TSN(nn.Module):
             # add bias if neccessary
         layer_name = list(container.state_dict().keys())[0][:-7]
         # remove .weight suffix to get the layer name
-
         # replace the first convlution layer
         setattr(container, layer_name, new_conv)
         return base_model
+    """对flow模型的第一层进行修改"""
