@@ -48,23 +48,6 @@ class CLUBSample(nn.Module):  # Sampled version of the CLUB estimator
         return - self.loglikeli(x_samples, y_samples)
 
 
-def loss_dependence_hisc(zdata_trn, ncaps, nhidden):
-    loss_dep = torch.zeros(1).cuda()
-    hH = (-1 / nhidden) * torch.ones(nhidden, nhidden).cuda() + torch.eye(nhidden).cuda()
-    kfactor = torch.zeros(ncaps, nhidden, nhidden).cuda()
-    for mm in range(ncaps):
-        data_temp = zdata_trn[:, mm * nhidden:(mm + 1) * nhidden]
-        kfactor[mm, :, :] = torch.mm(data_temp.t(), data_temp)
-    for mm in range(ncaps):
-        for mn in range(mm + 1, ncaps):
-            mat1 = torch.mm(hH, kfactor[mm, :, :])
-            mat2 = torch.mm(hH, kfactor[mn, :, :])
-            mat3 = torch.mm(mat1, mat2)
-            teststat = torch.trace(mat3)
-            loss_dep = loss_dep + teststat
-    return loss_dep
-
-
 class Basic_block(nn.Module):
     def __init__(self, in_feature, hidden, out_feature):
         super().__init__()
