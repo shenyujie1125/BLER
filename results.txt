@@ -1,3 +1,4 @@
 基于git的版本控制重新写代码
 三流网络：
 -c config_tsn.json --modality "RGB" -b 32 --lr 1e-3 --arch resnet101 --workers 4 --num_segments 3 --exp_name "3_stream" -d 0,1 --no_partialbn --num_factors 2 --opn cat
+V1：cat 连接三个模态的信息：256+2048+2048 没有center_loss
