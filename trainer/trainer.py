@@ -148,21 +148,21 @@ class Trainer(BaseTrainer):
                 loss_embed = model.loss.mse_center_loss(out['embed'], embeddings, target)
                 loss += loss_embed
             loss_center = 0
-            # if epoch > self.centers_start_epoch:
-            #     positive_centers = []
-            #     for i in range(resnet_output.size(0)):
-            #         all = self.centers[t[i, :] == 1]
-            #         if all.size(0) == 0:
-            #             positive_center = torch.zeros(4096)
-            #         else:
-            #             positive_center = torch.mean(all, dim=0)
-            #         has_nan = torch.isnan(positive_center).any().item()
-            #         if has_nan:
-            #             print(has_nan, 6)
-            #         positive_centers.append(positive_center)
-            #     positive_centers = torch.stack(positive_centers, dim=0)
-            #     loss_center += F.mse_loss(resnet_output, positive_centers.to(resnet_output.device))
-            # loss = loss + loss_center
+            if epoch > self.centers_start_epoch:
+                positive_centers = []
+                for i in range(resnet_output.size(0)):
+                    all = self.centers[t[i, :] == 1]
+                    if all.size(0) == 0:
+                        positive_center = torch.zeros(4096)
+                    else:
+                        positive_center = torch.mean(all, dim=0)
+                    has_nan = torch.isnan(positive_center).any().item()
+                    if has_nan:
+                        print(has_nan, 6)
+                    positive_centers.append(positive_center)
+                positive_centers = torch.stack(positive_centers, dim=0)
+                loss_center += F.mse_loss(resnet_output, positive_centers.to(resnet_output.device))
+            loss = loss + loss_center
 
             if phase == "train":
                 loss.backward()
