@@ -167,7 +167,8 @@ class Trainer(BaseTrainer):
                 x_norm = torch.norm(x, dim=1)
                 y_norm = torch.norm(y, dim=1)
                 dot_product = torch.sum(x*y, dim=1)
-                return dot_product/(x_norm*y_norm)
+                return dot_product/(x_norm*y_norm+1e-10)
+
             if epoch > self.centers_start_epoch:
                 positive_centers = []
                 for i in range(resnet_output.size(0)):
@@ -182,6 +183,7 @@ class Trainer(BaseTrainer):
                     positive_centers.append(positive_center)
                 positive_centers = torch.stack(positive_centers, dim=0)
                 loss_center += torch.mean(cosine_similarity(resnet_output, positive_centers.to(resnet_output.device)))
+                loss = loss + (-1) * loss_center
             """余弦相似度作为参数衡量类中心与对应样本之间相似度的指标"""
 
             if phase == "train":
