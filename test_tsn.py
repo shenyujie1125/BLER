@@ -49,7 +49,7 @@ if args.modality_1 == 'Flow':
     data_length_1 = 5
 # args.weights = model
 args.test_crops = 1
-args.test_segments = 3
+args.test_segments = 25
 print(args)
 
 net = TSN(26, 1, modality=args.modality, modality_1=args.modality_1,

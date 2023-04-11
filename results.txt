@@ -1,4 +1,8 @@
 基于git的版本控制重新写代码
 三流网络：
--c config_tsn.json --modality "RGB" -b 32 --lr 1e-3 --arch resnet101 --workers 4 --num_segments 3 --exp_name "3_stream" -d 0,1 --no_partialbn --num_factors 2 --opn cat
-V1：cat 连接三个模态的信息：256+2048+2048 没有center_loss
+V1：
+python train_tsn.py -c config_tsn.json --modality "RGB" -b 32 --lr 1e-3 --arch resnet101 --workers 4 --num_segments 3 --exp_name "3_stream" -d 0,1 --no_partialbn --num_factors 2 --opn cat
+cat 连接三个模态的信息：256+2048+2048 没有center_loss
+python test_tsn.py --mode val --modality "RGB" --arch resnet101 --workers 4 --weights /home/a/PycharmProjects/NTUA-BEEU-eccv2020/log/models/3_stream/0410_044552/model_best.pth --embed --opn cat
+seg 3 : ap: 0.16440917720333356 roc_auc:0.6236387023153481 mse:0.02423248487429761 r2:0.09842201737807184 ERS:0.24622297856870634e
+seg 25 :
