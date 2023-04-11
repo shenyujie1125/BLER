@@ -143,6 +143,8 @@ class Trainer(BaseTrainer):
                 loss_embed = model.loss.mse_center_loss(out['embed'], embeddings, target)
                 loss += loss_embed
             loss_center = 0
+
+            """MSE作为参数衡量类中心与对应样本之间相似度的指标"""
             # if epoch > self.centers_start_epoch:
             #     positive_centers = []
             #     for i in range(resnet_output.size(0)):
@@ -158,6 +160,29 @@ class Trainer(BaseTrainer):
             #     positive_centers = torch.stack(positive_centers, dim=0)
             #     loss_center += F.mse_loss(resnet_output, positive_centers.to(resnet_output.device))
             # loss = loss + loss_center
+            """MSE作为参数衡量类中心与对应样本之间相似度的指标"""
+
+            """余弦相似度作为参数衡量类中心与对应样本之间相似度的指标"""
+            def cosine_similarity(x,y):
+                x_norm = torch.norm(x, dim=1)
+                y_norm = torch.norm(y, dim=1)
+                dot_product = torch.sum(x*y, dim=1)
+                return dot_product/(x_norm*y_norm)
+            if epoch > self.centers_start_epoch:
+                positive_centers = []
+                for i in range(resnet_output.size(0)):
+                    all = self.centers[t[i, :] == 1]
+                    if all.size(0) == 0:
+                        positive_center = torch.zeros(self.model.module.center_dim)
+                    else:
+                        positive_center = torch.mean(all, dim=0)
+                    has_nan = torch.isnan(positive_center).any().item()
+                    if has_nan:
+                        print(has_nan, 6)
+                    positive_centers.append(positive_center)
+                positive_centers = torch.stack(positive_centers, dim=0)
+                loss_center += torch.mean(cosine_similarity(resnet_output, positive_centers.to(resnet_output.device)))
+            """余弦相似度作为参数衡量类中心与对应样本之间相似度的指标"""
 
             if phase == "train":
                 loss.backward()
