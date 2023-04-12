@@ -6,3 +6,9 @@ cat 连接三个模态的信息：256+2048+2048 没有center_loss
 python test_tsn.py --mode val --modality "RGB" --arch resnet101 --workers 4 --weights /home/a/PycharmProjects/NTUA-BEEU-eccv2020/log/models/3_stream/0410_044552/model_best.pth --embed --opn cat
 val seg 3 : ap: 0.16440917720333356 roc_auc:0.6236387023153481 mse:0.02423248487429761 r2:0.09842201737807184 ERS:0.24622297856870634e
 test seg 25 :  Result upload successful. Your result is: AP = 0.168, AUC = 0.6338, R^2 = 0.1224    0.26165
+
+v2 with 正交 centerloss_2
+cat 连接三个模态的信息：256+2048+2048 没有center_loss
+python test_tsn.py --mode val --modality "RGB" --arch resnet101 --workers 4 --weights /home/a/PycharmProjects/NTUA-BEEU-eccv2020/log/models/3_stream/0411_041828/model_best.pth --embed --opn cat
+val seg 3 : ap: 0.16252473580601226 roc_auc:0.6241427852132865 mse:0.024149352066600283 r2:0.10122275081022847 ERS:0.2472782556599389
+test seg 25 : Result upload successful. Your result is: AP = 0.1634, AUC = 0.6279, R^2 = 0.1178 ((0.1634+0.6279)/2+0.1178)/2 = 0.256725
