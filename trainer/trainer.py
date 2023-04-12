@@ -126,11 +126,11 @@ class Trainer(BaseTrainer):
             t[t >= 0.5] = 1  # threshold to get binary labels
             t[t < 0.5] = 0
             if epoch >= self.centers_start_epoch and phase == "train":
-                out, resnet_output = self.model(data, data_1, stgcn_data)
+                out, resnet_output, NCE_loss = self.model(data, data_1, stgcn_data)
                 self.all_feature[index] = resnet_output.data.cpu()
                 self.all_label[index] = t
             else:
-                out, resnet_output = self.model(data, data_1, stgcn_data)
+                out, resnet_output, NCE_loss = self.model(data, data_1, stgcn_data)
             has_nan = torch.isnan(resnet_output).any().item()
             if has_nan:
                 print(has_nan, 4)
@@ -163,28 +163,33 @@ class Trainer(BaseTrainer):
             """MSE作为参数衡量类中心与对应样本之间相似度的指标"""
 
             """余弦相似度作为参数衡量类中心与对应样本之间相似度的指标"""
-            def cosine_similarity(x,y):
-                x_norm = torch.norm(x, dim=1)
-                y_norm = torch.norm(y, dim=1)
-                dot_product = torch.sum(x*y, dim=1)
-                return dot_product/(x_norm*y_norm+1e-10)
-
-            if epoch > self.centers_start_epoch:
-                positive_centers = []
-                for i in range(resnet_output.size(0)):
-                    all = self.centers[t[i, :] == 1]
-                    if all.size(0) == 0:
-                        positive_center = torch.zeros(self.model.module.center_dim)
-                    else:
-                        positive_center = torch.mean(all, dim=0)
-                    has_nan = torch.isnan(positive_center).any().item()
-                    if has_nan:
-                        print(has_nan, 6)
-                    positive_centers.append(positive_center)
-                positive_centers = torch.stack(positive_centers, dim=0)
-                loss_center += torch.mean(cosine_similarity(resnet_output, positive_centers.to(resnet_output.device)))
-                loss = loss + (-1) * loss_center
+            # def cosine_similarity(x,y):
+            #     x_norm = torch.norm(x, dim=1)
+            #     y_norm = torch.norm(y, dim=1)
+            #     dot_product = torch.sum(x*y, dim=1)
+            #     return dot_product/(x_norm*y_norm+1e-10)
+            #
+            # if epoch > self.centers_start_epoch:
+            #     positive_centers = []
+            #     for i in range(resnet_output.size(0)):
+            #         all = self.centers[t[i, :] == 1]
+            #         if all.size(0) == 0:
+            #             positive_center = torch.zeros(self.model.module.center_dim)
+            #         else:
+            #             positive_center = torch.mean(all, dim=0)
+            #         has_nan = torch.isnan(positive_center).any().item()
+            #         if has_nan:
+            #             print(has_nan, 6)
+            #         positive_centers.append(positive_center)
+            #     positive_centers = torch.stack(positive_centers, dim=0)
+            #     loss_center += torch.mean(cosine_similarity(resnet_output, positive_centers.to(resnet_output.device)))
+            #     loss = loss + (-1) * loss_center
             """余弦相似度作为参数衡量类中心与对应样本之间相似度的指标"""
+
+            """CPC_LOSS"""
+            NCE_loss = torch.mean(NCE_loss)/10.0
+            loss = loss + NCE_loss
+            """CPC_LOSS"""
 
             if phase == "train":
                 loss.backward()
@@ -200,17 +205,23 @@ class Trainer(BaseTrainer):
             outputs_continuous.append(output_continuous)
             targets_continuous.append(target_continuous)
 
+            if isinstance(NCE_loss, int):
+                NCE_loss = NCE_loss
+            else:
+                NCE_loss = NCE_loss.item()
+
             if isinstance(loss_center, int):
                 loss_center = loss_center
             else:
                 loss_center = loss_center.item()
+
             if batch_idx % self.log_step == 0:
                 self.logger.debug(
-                    '{} Epoch: {} {} Loss: {:.6f} Loss categorical: {:.6f} Loss continuous: {:.6f} Loss_center: {:.6f}'.format(
+                    '{} Epoch: {} {} Loss: {:.6f} Loss categorical: {:.6f} Loss continuous: {:.6f} Loss_center: {:.6f} Loss_cpc: {:.6f}'.format(
                         phase,
                         epoch,
                         self._progress(batch_idx),
-                        loss.item(), loss_categorical.item(), loss_continuous.item(), loss_center))
+                        loss.item(), loss_categorical.item(), loss_continuous.item(), loss_center, NCE_loss))
 
             if batch_idx == self.len_epoch:
                 break

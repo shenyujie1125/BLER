@@ -58,6 +58,52 @@ class Basic_block(nn.Module):
         x = self.drop_out(self.Leakyrelu3(self.fcn3(x))) + x1
 
 
+class CPC(nn.Module):
+    """
+        Contrastive Predictive Coding: score computation. See https://arxiv.org/pdf/1807.03748.pdf.
+
+        Args:
+            x_size (int): embedding size of input modality representation x
+            y_size (int): embedding size of input modality representation y
+    """
+
+    def __init__(self, x_size, y_size, n_layers=1, activation='Tanh'):
+        super().__init__()
+        self.x_size = x_size
+        self.y_size = y_size
+        self.layers = n_layers
+        self.activation = getattr(nn, activation)
+        if n_layers == 1:
+            self.net = nn.Linear(
+                in_features=y_size,
+                out_features=x_size
+            )
+        else:
+            net = nn.ModuleList()
+            for i in range(n_layers):
+                if i == 0:
+                    net.append(nn.Linear(self.y_size, self.x_size))
+                    net.append(self.activation())
+                else:
+                    net.append(nn.Linear(self.x_size, self.x_size))
+            self.net = nn.Sequential(*net)
+
+    def forward(self, x, y):
+        """Calulate the score
+        """
+        # import ipdb;ipdb.set_trace()
+        x_pred = self.net(y)  # bs, emb_size
+
+        # normalize to unit sphere
+        x_pred = x_pred / x_pred.norm(dim=1, keepdim=True)
+        x = x / x.norm(dim=1, keepdim=True)
+
+        pos = torch.sum(x * x_pred, dim=-1)  # bs
+        neg = torch.logsumexp(torch.matmul(x, x_pred.t()), dim=-1)  # bs
+        nce = -(pos - neg).mean()
+        return nce
+
+
 class TSN(nn.Module):
     def __init__(self, num_class, num_segments, modality, modality_1,
                  base_model='resnet18', new_length=None, new_length_1=None,
@@ -195,6 +241,10 @@ class TSN(nn.Module):
         self.project = nn.Sequential(nn.Linear(self.input_dim, 1024), nn.Linear(1024, self.center_dim))
         """用于计算聚类损失的网络"""
 
+        """对比学习，对比预测编码"""
+        self.CPC_flow_stgcn = CPC(self.st_gcn_dim, self.feature_dim_1, n_layers=2)
+        self.CPC_RGB_stgcn = CPC(self.st_gcn_dim, self.feature_dim, n_layers=2)
+        """对比学习，对比预测编码"""
     def forward(self, input, input_1, input2):
         """resnet的通道数量对于不同模态是不一样的"""
         if self.modality == "RGB":
@@ -283,10 +333,16 @@ class TSN(nn.Module):
         """进行前向预测，然后对一个视频的多个片段上的结果取平均"""
 
         """得到特征用于聚类"""
-        resnet_output = self.project(resnet_output)
-        feature = self.consensus_for_loss(resnet_output.view((-1, self.num_segments) + resnet_output.size()[1:])).squeeze(1)
+        feature = self.project(resnet_output)
+        feature = self.consensus_for_loss(feature.view((-1, self.num_segments) + feature.size()[1:])).squeeze(1)
         """得到特征用于聚类"""
-        return outputs, feature
+
+        """对比预测编码损失，最大化相关信息"""
+        NCE_loss = 0
+        NCE_loss += self.CPC_RGB_stgcn(out_stgcn_2, base_out)
+        NCE_loss += self.CPC_flow_stgcn(out_stgcn_2, base_out_1)
+        """对比预测编码损失，最大化相关信息"""
+        return outputs, feature, NCE_loss
 
     """club方法需要传入相应的模型，然后传入需要进行计算互信息的表示，以及需要解耦的num_factor"""
     def loss_dependence_club_b(self, model, representation, num_factors):
