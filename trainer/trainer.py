@@ -62,6 +62,7 @@ class Trainer(BaseTrainer):
         self.centers_tmp = torch.zeros(26, self.model.module.center_dim, requires_grad=False)
         self.counts = torch.zeros(26, requires_grad=False)
         self.all_label = torch.zeros(len(self.data_loader.dataset), 26, requires_grad=False)
+        self.all_label_continue = torch.zeros(len(self.data_loader.dataset), 26, requires_grad=False)
         self.centers_start_epoch = 5
 
     def _train_epoch(self, epoch, phase="train"):
@@ -90,14 +91,41 @@ class Trainer(BaseTrainer):
         outputs_continuous = []
         targets = []
         targets_continuous = []
+
+        """这里对类中心的选择是基于0.5这个分界"""
+        # if epoch > self.centers_start_epoch and phase == 'train':
+        #     self.centers_tmp = torch.zeros(26, self.model.module.center_dim, requires_grad=False)
+        #     self.counts = torch.zeros(26, requires_grad=False)
+        #     for emotion_class in range(26):
+        #         for num in range(len(self.data_loader.dataset)):
+        #             if self.all_label[num][emotion_class] == 1:
+        #                 self.centers_tmp[emotion_class] += self.all_feature[num]
+        #                 self.counts[emotion_class] += 1
+        #     for emotion_class in range(26):
+        #         self.centers_tmp[emotion_class] = self.centers_tmp[emotion_class] / (self.counts[emotion_class] + 1e-10)
+        #     if epoch == self.centers_start_epoch + 1:
+        #         self.centers = self.centers_tmp
+        #     else:
+        #         self.centers = 0.9 * self.centers + 0.1 * self.centers_tmp
+        #     has_nan = torch.isnan(self.all_feature).any().item()
+        #     if has_nan:
+        #         print(has_nan, 1)
+        #     has_nan = torch.isnan(self.centers_tmp).any().item()
+        #     if has_nan:
+        #         print(has_nan, 2)
+        #     has_nan = torch.isnan(self.centers).any().item()
+        #     if has_nan:
+        #         print(has_nan, 3)
+        """这里对类中心的选择是基于0.5这个分界，这样容易导致全部为0，也就是不属于26类样本的任意一类的情况的出现"""
+
+        """运用连续的手段计算类中心"""
         if epoch > self.centers_start_epoch and phase == 'train':
             self.centers_tmp = torch.zeros(26, self.model.module.center_dim, requires_grad=False)
             self.counts = torch.zeros(26, requires_grad=False)
             for emotion_class in range(26):
                 for num in range(len(self.data_loader.dataset)):
-                    if self.all_label[num][emotion_class] == 1:
-                        self.centers_tmp[emotion_class] += self.all_feature[num]
-                        self.counts[emotion_class] += 1
+                    self.centers_tmp[emotion_class] += self.all_feature[num]*self.all_label_continue[num][emotion_class]
+                    self.counts[emotion_class] += self.all_label_continue[num][emotion_class]
             for emotion_class in range(26):
                 self.centers_tmp[emotion_class] = self.centers_tmp[emotion_class] / (self.counts[emotion_class] + 1e-10)
             if epoch == self.centers_start_epoch + 1:
@@ -113,6 +141,9 @@ class Trainer(BaseTrainer):
             has_nan = torch.isnan(self.centers).any().item()
             if has_nan:
                 print(has_nan, 3)
+        """运用连续的手段计算类中心"""
+
+        """这里对类中心的选择是基于0.5这个分界"""
         data_loader = self.data_loader if phase == "train" else self.valid_data_loader
         for batch_idx, (stgcn_data, data, data_1, embeddings, target, target_continuous, lengths, index) in enumerate(data_loader):
             data, target, target_continuous = data.to(self.device), target.to(self.device), target_continuous.to(self.device)
@@ -123,12 +154,14 @@ class Trainer(BaseTrainer):
                 self.optimizer.zero_grad()
             """建立类别中心"""
             t = target.clone().detach().cpu()
+            t_continue = target.clone().detach().cpu()
             t[t >= 0.5] = 1  # threshold to get binary labels
             t[t < 0.5] = 0
             if epoch >= self.centers_start_epoch and phase == "train":
                 out, resnet_output, NCE_loss = self.model(data, data_1, stgcn_data)
                 self.all_feature[index] = resnet_output.data.cpu()
                 self.all_label[index] = t
+                self.all_label_continue[index] = t_continue
             else:
                 out, resnet_output, NCE_loss = self.model(data, data_1, stgcn_data)
             has_nan = torch.isnan(resnet_output).any().item()
@@ -163,27 +196,27 @@ class Trainer(BaseTrainer):
             """MSE作为参数衡量类中心与对应样本之间相似度的指标"""
 
             """余弦相似度作为参数衡量类中心与对应样本之间相似度的指标"""
-            # def cosine_similarity(x,y):
-            #     x_norm = torch.norm(x, dim=1)
-            #     y_norm = torch.norm(y, dim=1)
-            #     dot_product = torch.sum(x*y, dim=1)
-            #     return dot_product/(x_norm*y_norm+1e-10)
-            #
-            # if epoch > self.centers_start_epoch:
-            #     positive_centers = []
-            #     for i in range(resnet_output.size(0)):
-            #         all = self.centers[t[i, :] == 1]
-            #         if all.size(0) == 0:
-            #             positive_center = torch.zeros(self.model.module.center_dim)
-            #         else:
-            #             positive_center = torch.mean(all, dim=0)
-            #         has_nan = torch.isnan(positive_center).any().item()
-            #         if has_nan:
-            #             print(has_nan, 6)
-            #         positive_centers.append(positive_center)
-            #     positive_centers = torch.stack(positive_centers, dim=0)
-            #     loss_center += torch.mean(cosine_similarity(resnet_output, positive_centers.to(resnet_output.device)))
-            #     loss = loss + (-1) * loss_center
+            def cosine_similarity(x,y):
+                x_norm = torch.norm(x, dim=1)
+                y_norm = torch.norm(y, dim=1)
+                dot_product = torch.sum(x*y, dim=1)
+                return dot_product/(x_norm*y_norm+1e-10)
+
+            if epoch > self.centers_start_epoch:
+                positive_centers = []
+                for i in range(resnet_output.size(0)):
+                    all = self.centers[t[i, :] == 1]
+                    if all.size(0) == 0:
+                        positive_center = torch.zeros(self.model.module.center_dim)
+                    else:
+                        positive_center = torch.mean(all, dim=0)
+                    has_nan = torch.isnan(positive_center).any().item()
+                    if has_nan:
+                        print(has_nan, 6)
+                    positive_centers.append(positive_center)
+                positive_centers = torch.stack(positive_centers, dim=0)
+                loss_center += torch.mean(cosine_similarity(resnet_output, positive_centers.to(resnet_output.device)))
+                loss = loss + (-1) * loss_center
             """余弦相似度作为参数衡量类中心与对应样本之间相似度的指标"""
 
             """CPC_LOSS"""
