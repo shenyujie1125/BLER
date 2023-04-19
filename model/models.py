@@ -231,19 +231,26 @@ class TSN(nn.Module):
         """如果不是256那么就需要对其进行映射"""
 
         """预测全连接网络"""
-        self.linear_class = nn.Sequential(nn.Linear(self.input_dim, 1024), nn.Linear(1024, 26))
-        self.linear_continue = nn.Sequential(nn.Linear(self.input_dim, 1024), nn.Linear(1024, 3))
+        # self.linear_class = nn.Sequential(nn.Linear(self.input_dim, 1024), nn.Linear(1024, 26))
+        # self.linear_continue = nn.Sequential(nn.Linear(self.input_dim, 1024), nn.Linear(1024, 3))
         """预测全连接网络"""
+        #######
+        self.linear_class = nn.Sequential(nn.Linear((self.feature_dim+self.feature_dim_1)*self.num_segments+self.st_gcn_dim, 1024), nn.Linear(1024, 26))
+        self.linear_continue = nn.Sequential(nn.Linear((self.feature_dim+self.feature_dim_1)*self.num_segments+self.st_gcn_dim, 1024), nn.Linear(1024, 3))
+        #######
 
         """用于计算聚类损失的网络"""
         self.center_dim = self.args.center_dim
         self.consensus_for_loss = ConsensusModule(consensus_type)
-        self.project = nn.Sequential(nn.Linear(self.input_dim, 1024), nn.Linear(1024, self.center_dim))
+        # self.project = nn.Sequential(nn.Linear(self.input_dim, 1024), nn.Linear(1024, self.center_dim))
+        #######
+        self.project = nn.Sequential(nn.Linear((self.feature_dim+self.feature_dim_1)*self.num_segments+self.st_gcn_dim, 1024), nn.Linear(1024, self.center_dim))
+        #######
         """用于计算聚类损失的网络"""
 
         """对比学习，对比预测编码"""
-        self.CPC_flow_stgcn = CPC(self.st_gcn_dim, self.feature_dim_1, n_layers=2)
-        self.CPC_RGB_stgcn = CPC(self.st_gcn_dim, self.feature_dim, n_layers=2)
+        self.CPC_flow_stgcn = CPC(self.st_gcn_dim, self.feature_dim_1, n_layers=3)
+        self.CPC_RGB_stgcn = CPC(self.st_gcn_dim, self.feature_dim, n_layers=3)
         """对比学习，对比预测编码"""
     def forward(self, input, input_1, input2):
         """resnet的通道数量对于不同模态是不一样的"""
@@ -318,23 +325,35 @@ class TSN(nn.Module):
             out_stgcn_2 = out_stgcn_1.view(-1, out_stgcn_1.shape[-1])
         else:
             out_stgcn_2 = out_stgcn
-        resnet_output = torch.cat([resnet_output, out_stgcn_2], dim=1)
+        ##########
+        resnet_output_2 = torch.cat([resnet_output.view(-1, resnet_output.shape[-1] * self.num_segments), out_stgcn], dim=1)
+        ##########
+        # resnet_output = torch.cat([resnet_output, out_stgcn_2], dim=1)
         """stgcn前向传播"""
 
         """进行前向预测，然后对一个视频的多个片段上的结果取平均"""
-        results_class = self.linear_class(resnet_output)
-        results_continue = self.linear_continue(resnet_output)
-        base_out_cat = results_class.view((-1, self.num_segments) + results_class.size()[1:])
-        base_out_cont = results_continue.view((-1, self.num_segments) + results_continue.size()[1:])
-        output = self.consensus(base_out_cat)
-        outputs['categorical'] = output.squeeze(1)
-        output_cont = self.consensus_cont(base_out_cont)
-        outputs['continuous'] = output_cont.squeeze(1)
-        """进行前向预测，然后对一个视频的多个片段上的结果取平均"""
+        ##########
+        results_class = self.linear_class(resnet_output_2)
+        results_continue = self.linear_continue(resnet_output_2)
+        outputs['categorical'] = results_class
+        outputs['continuous'] = results_continue
+        ##########
+        # results_class = self.linear_class(resnet_output)
+        # results_continue = self.linear_continue(resnet_output)
+        # base_out_cat = results_class.view((-1, self.num_segments) + results_class.size()[1:])
+        # base_out_cont = results_continue.view((-1, self.num_segments) + results_continue.size()[1:])
+        # output = self.consensus(base_out_cat)
+        # outputs['categorical'] = output.squeeze(1)
+        # output_cont = self.consensus_cont(base_out_cont)
+        # outputs['continuous'] = output_cont.squeeze(1)
 
+        """进行前向预测，然后对一个视频的多个片段上的结果取平均"""
+        ##########
+        feature = self.project(resnet_output_2)
+        ##########
         """得到特征用于聚类"""
-        feature = self.project(resnet_output)
-        feature = self.consensus_for_loss(feature.view((-1, self.num_segments) + feature.size()[1:])).squeeze(1)
+        # feature = self.project(resnet_output)
+        # feature = self.consensus_for_loss(feature.view((-1, self.num_segments) + feature.size()[1:])).squeeze(1)
         """得到特征用于聚类"""
 
         """对比预测编码损失，最大化相关信息"""

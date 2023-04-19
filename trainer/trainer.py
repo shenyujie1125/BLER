@@ -1,5 +1,6 @@
 import numpy as np
 import torch
+from torch import nn
 from torchvision.utils import make_grid
 from base import BaseTrainer
 from utils import inf_loop, MetricTracker, make_barplot
@@ -196,7 +197,7 @@ class Trainer(BaseTrainer):
             """MSE作为参数衡量类中心与对应样本之间相似度的指标"""
 
             """余弦相似度作为参数衡量类中心与对应样本之间相似度的指标"""
-            def cosine_similarity(x,y):
+            def cosine_similarity(x, y):
                 x_norm = torch.norm(x, dim=1)
                 y_norm = torch.norm(y, dim=1)
                 dot_product = torch.sum(x*y, dim=1)
@@ -206,6 +207,7 @@ class Trainer(BaseTrainer):
                 positive_centers = []
                 for i in range(resnet_output.size(0)):
                     all = self.centers[t[i, :] == 1]
+                    # all = self.centers.mul(t_continue[i].view(26, 1).expand_as(self.centers))
                     if all.size(0) == 0:
                         positive_center = torch.zeros(self.model.module.center_dim)
                     else:
@@ -217,6 +219,7 @@ class Trainer(BaseTrainer):
                 positive_centers = torch.stack(positive_centers, dim=0)
                 loss_center += torch.mean(cosine_similarity(resnet_output, positive_centers.to(resnet_output.device)))
                 loss = loss + (-1) * loss_center
+
             """余弦相似度作为参数衡量类中心与对应样本之间相似度的指标"""
 
             """CPC_LOSS"""
@@ -235,6 +238,7 @@ class Trainer(BaseTrainer):
 
             output_continuous = torch.sigmoid(out['continuous']).cpu().detach().numpy()
             target_continuous = target_continuous.cpu().detach().numpy()
+
             outputs_continuous.append(output_continuous)
             targets_continuous.append(target_continuous)
 

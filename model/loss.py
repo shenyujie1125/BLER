@@ -17,9 +17,9 @@ def bce_loss(output, target):
     loss = F.binary_cross_entropy_with_logits(output, t)
     return loss
 
-def combined_loss(output, target):
-    l = F.mse_loss(output, target)
 
+def combined_loss(output, target):
+    l = F.mse_loss(torch.sigmoid(output), target)
     l += bce_loss(output, target)
 
     return l

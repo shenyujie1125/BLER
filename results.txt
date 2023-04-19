@@ -2,13 +2,47 @@
 三流网络：
 V1：
 python train_tsn.py -c config_tsn.json --modality "RGB" -b 32 --lr 1e-3 --arch resnet101 --workers 4 --num_segments 3 --exp_name "3_stream" -d 0,1 --no_partialbn --num_factors 2 --opn cat
-cat 连接三个模态的信息：256+2048+2048 没有center_loss
+cat 连接三个模态的信息：256+2048+2048
 python test_tsn.py --mode val --modality "RGB" --arch resnet101 --workers 4 --weights /home/a/PycharmProjects/NTUA-BEEU-eccv2020/log/models/3_stream/0410_044552/model_best.pth --embed --opn cat
 val seg 3 : ap: 0.16440917720333356 roc_auc:0.6236387023153481 mse:0.02423248487429761 r2:0.09842201737807184 ERS:0.24622297856870634e
 test seg 25 :  Result upload successful. Your result is: AP = 0.168, AUC = 0.6338, R^2 = 0.1224    0.26165
 
-v2 with 正交 centerloss_2
-cat 连接三个模态的信息：256+2048+2048 没有center_loss
-python test_tsn.py --mode val --modality "RGB" --arch resnet101 --workers 4 --weights /home/a/PycharmProjects/NTUA-BEEU-eccv2020/log/models/3_stream/0411_041828/model_best.pth --embed --opn cat
-val seg 3 : ap: 0.16252473580601226 roc_auc:0.6241427852132865 mse:0.024149352066600283 r2:0.10122275081022847 ERS:0.2472782556599389
-test seg 25 : Result upload successful. Your result is: AP = 0.1634, AUC = 0.6279, R^2 = 0.1178 ((0.1634+0.6279)/2+0.1178)/2 = 0.256725
+v2 with 正交 centerloss_continue 2_cpc_loss 1 1
+cat 连接三个模态的信息：256+2048+2048
+val seg 3 : ap: 0.16558988713629075 roc_auc:0.6274762621843626 mse:0.024131750025717564 r2:0.10185191241292617 ERS:0.24919249353662642
+val seg 25 : ap: 0.167879900983591 roc_auc:0.6275401778869887 mse:0.02391151614646529 r2:0.11010644520706021 ERS:0.25390824232117504
+test seg 25 : Result upload successful. Your result is: AP = 0.1684, AUC = 0.6327, R^2 = 0.1165 ((0.1684+0.6327)/2+0.1165)/2 0.258525
+024307
+
+v2 with 正交 centerloss_continue without_2_cpc_loss 1 0
+cat 连接三个模态的信息：256+2048+2048
+val seg 3 : ap: 0.1665754056499304 roc_auc:0.6287479542183412 mse:0.02423154574022927 r2:0.09847072004787472 ERS:0.24806619999100527
+val seg 25 : ap: 0.16849810551235034 roc_auc:0.6281635683414049 mse:0.024039593401780662 r2:0.1054424754943174 ERS:0.25188665621059747
+test seg 25 : Result upload successful. Your result is: AP = 0.1677, AUC = 0.6337, R^2 = 0.1257 ((0.1677+0.6337)/2+0.1257)/2 = 0.2632
+135004
+
+v2 without 正交 centerloss_continue without_2_cpc_loss 0 0
+cat 连接三个模态的信息：256+2048+2048
+val seg 3 : ap: 0.16535117932270976 roc_auc:0.6275888753249084 mse:0.024417793457380585 r2:0.09177376945429716 ERS:0.24412189838905313
+val seg 25 : ap: 0.1674430847136169 roc_auc:0.6256928591790574 mse:0.024195532414524254 r2:0.09994934692865591 ERS:0.24825865943749653
+test seg 25 : Result upload successful. Your result is: AP = 0.1668, AUC = 0.6304, R^2 = 0.1213  ((0.1668+0.6304)/2+0.1213)/2 = 0.25995
+045617
+
+v2 without 正交 centerloss_continue with_2_cpc_loss 0 1
+val seg 3 : ap: 0.16583800962054254 roc_auc:0.6278673798519682 mse:0.024116931100416277 r2:0.10237632710858417 ERS:0.24961451092241976
+val seg 25 : ap: 0.16747893576299883 roc_auc:0.6272121816056959 mse:0.023928148186419553 r2:0.10945428700376492 ERS:0.25339992284405616
+test seg 25 :  Result upload successful. Your result is: AP = 0.1688, AUC = 0.6332, R^2 = 0.1167 ((0.1688+0.6332)/2+0.1167)/2 = 0.25885
+185151
+
+v2 with 正交 centerloss_continue 2_cpc_loss combined loss
+val seg 25 : ap: 0.16538357054895886 roc_auc:0.6250219692631881 mse:0.02413884673478311 r2:0.10113137300663162 ERS:0.24816707145635256
+val seg 25 : ap: 0.16766679171015958 roc_auc:0.6268566555257394 mse:0.024022094585970294 r2:0.10562151491646565 ERS:0.2514416192672076
+0417_081607
+
+v2 4 segments
+val seg 3 : ap: 0.16267638459346848 roc_auc:0.6226909430808237 mse:0.024207292505145365 r2:0.09857233960625267 ERS:0.24562800172169938
+val seg 25 : ap: 0.16538331024463662 roc_auc:0.6242969133145201 mse:0.02402270632357788 r2:0.10550549108892042 ERS:0.25017280143424936
+083718
+
+n_layers=3 + 特征串联
+

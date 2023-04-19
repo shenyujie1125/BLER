@@ -125,7 +125,7 @@ def eval_video(video_data):
     input_var1 = torch.autograd.Variable(data1.view(-1, length_1, data.size(2), data.size(3)), volatile=True)
     input_var2 = torch.autograd.Variable(stgcndata, volatile=True)
 
-    out, _ = net(input_var, input_var1, input_var2)
+    out, _ , _ = net(input_var, input_var1, input_var2)
     rst = torch.sigmoid(out['categorical']).data.cpu().numpy().copy()
     rst_cont = torch.sigmoid(out['continuous']).data.cpu().numpy().copy()
 
